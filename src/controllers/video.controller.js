@@ -47,8 +47,8 @@ const publishAVideo = asyncHandler(async (req, res) => {
   if (!title || !description) {
     throw new ApiError(400, "Title and description are required");
   }
-  const videoLocalPath = req.file?.videoFile[0].path;
-  const thumbnailLocalPath = req.file?.thumbnail[0].path;
+  const videoLocalPath = req.files?.videoFile[0].path;
+  const thumbnailLocalPath = req.files?.thumbnail[0].path;
   if (!videoLocalPath || !thumbnailLocalPath) {
     throw new ApiError(409, "Video file is required!");
   }
@@ -63,13 +63,13 @@ const publishAVideo = asyncHandler(async (req, res) => {
   const newVideo = await Video.create({
     title,
     description,
-    videoUrl: videoFile.url,
-    thumbnailUrl: thumbnailFile.url,
+    videoFile: videoFile.url,
+    thumbnail: thumbnailFile.url,
     duration: actualDuration,
     user: userId,
   });
 
-  const uploadedVideo = await Video.findOne(newVideo._id);
+  const uploadedVideo = await Video.findById(newVideo._id);
   if (!uploadedVideo) {
     throw new ApiError(500, "Something went wrong while uploading the video.");
   }

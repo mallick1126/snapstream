@@ -29,6 +29,7 @@ const generateAccessAndRefereshTokens = async (userId) => {
 
 const registerUser = asyncHandler(async (req, res) => {
   const { fullName, email, username, password } = req.body;
+  console;
 
   if (
     [fullName, email, username, password].some((field) => field?.trim() === "")
@@ -59,8 +60,8 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Avatar file is required");
   }
 
-  const avatar = await uploadOnCloudinary(avatarLocalPath);
-  const coverImage = await uploadOnCloudinary(coverImageLocalPath);
+  const avatar = await uploadOnCloudinary(avatarLocalPath, "snapstream/avatars");
+  const coverImage = await uploadOnCloudinary(coverImageLocalPath, "snapstream/cover-images");
 
   if (!avatar) {
     throw new ApiError(400, "Avatar file is required");
@@ -280,7 +281,7 @@ const updateUserAvatar = asyncHandler(async (req, res) => {
       deleteFromCloudinary(oldAvatar);
     }
     //upload new image
-    const avatar = await uploadOnCloudinary(avatarLocalPath);
+    const avatar = await uploadOnCloudinary(avatarLocalPath, "snapstream/avatars");
     if (!avatar.url) {
       throw new ApiError(400, "Error while uploading on avatar");
     }
@@ -320,7 +321,7 @@ const updateUserCoverImage = asyncHandler(async (req, res) => {
     if (oldCoverImage) {
       deleteFromCloudinary(oldCoverImage);
     }
-    const coverImage = await uploadOnCloudinary(coverImageLocalPath);
+    const coverImage = await uploadOnCloudinary(coverImageLocalPath, "snapstream/cover-images");
     if (!coverImage.url) {
       throw new ApiError(400, "Error while uploading on avatar");
     }
