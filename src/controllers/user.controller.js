@@ -8,6 +8,7 @@ import {
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
+import { uploadObjectToS3, deleteObjectFromS3 } from "../utils/s3.config.js";
 
 const generateAccessAndRefereshTokens = async (userId) => {
   try {
@@ -27,7 +28,7 @@ const generateAccessAndRefereshTokens = async (userId) => {
   }
 };
 
-const registerUser = asyncHandler(async (req, res) => {
+/*const registerUserCloudinary = asyncHandler(async (req, res) => {
   const { fullName, email, username, password } = req.body;
   console;
 
@@ -87,11 +88,72 @@ const registerUser = asyncHandler(async (req, res) => {
   return res
     .status(201)
     .json(new ApiResponse(200, createdUser, "User registered Successfully"));
+});*/
+
+const registerUserS3 = asyncHandler(async (req, res) => {
+  const { fullname, email, username, password } = req.body;
+
+  if (
+    [fullname, email, username, password].some((field) => field?.trim() === "")
+  ) {
+    throw new ApiError(400, "All fields are required");
+  }
+  const existedUser = await User.findOne({ $or: [{ username }, { email }] });
+  if (existedUser) {
+    throw new ApiError(409, "User with email or username already exists");
+  }
+
+  const fileUrls = {
+    avatar: "",
+    coverImage: "",
+  };
+
+  try {
+    if (req.files?.avatar?.[0]) {
+      const avatarUpload = await uploadObjectToS3(
+        `avatar/${Date.now()}-${req.files.avatar[0].originalname}`,
+        req.files.avatar[0].buffer,
+        req.files.avatar[0].mimetype
+      );
+      fileUrls.avatar = avatarUpload.Location;
+    }
+
+    if (req.files?.coverImage?.[0]) {
+      const coverUpload = await uploadObjectToS3(
+        `coverImage/${Date.now()}-${req.files.coverImage[0].originalname}`,
+        req.files.coverImage[0].buffer,
+        req.files.coverImage[0].mimetype
+      );
+      fileUrls.coverImage = coverUpload.Location;
+    }
+  } catch (error) {
+    console.error("File Upload Error:", error);
+    throw new ApiError(400, "Error while uploading files to S3");
+  }
+
+  const user = await User.create({
+    fullname: fullname,
+    email: email,
+    username: username,
+    password: password,
+    avatar: fileUrls.avatar,
+    coverImage: fileUrls.coverImage,
+  });
+
+  const createdUser = await User.findById(user._id).select(
+    "-password -refreshToken"
+  );
+  if (!createdUser) {
+    throw new ApiError(500, "Something went wrong while registering the user");
+  }
+
+  return res
+    .status(201)
+    .json(new ApiResponse(201, createdUser, "User registered Successfully"));
 });
 
 const loginUser = asyncHandler(async (req, res) => {
   const { email, username, password } = req.body;
-  console.log(email);
 
   if (!username && !email) {
     throw new ApiError(400, "username or email is required");
@@ -261,10 +323,55 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, user, "Account details updated successfully"));
 });
 
-const updateUserAvatar = asyncHandler(async (req, res) => {
-  const avatarLocalPath = req.file?.path;
+// const updateUserAvatar = asyncHandler(async (req, res) => {
+//   const avatarLocalPath = req.file?.path;
 
-  if (!avatarLocalPath) {
+//   if (!avatarLocalPath) {
+//     throw new ApiError(400, "Avatar file is missing");
+//   }
+
+//   const user = await User.findById(req.user?._id);
+//   if (!user) {
+//     throw new ApiError(404, "User not found");
+//   }
+
+//   const oldAvatar = user.avatar;
+
+//   try {
+//     //delete old image
+//     if (oldAvatar) {
+//       deleteFromCloudinary(oldAvatar);
+//     }
+//     //upload new image
+//     const avatar = await uploadOnCloudinary(
+//       avatarLocalPath,
+//       "snapstream/avatars"
+//     );
+//     if (!avatar.url) {
+//       throw new ApiError(400, "Error while uploading on avatar");
+//     }
+
+//     //update user avatar
+//     user.avatar = avatar.url;
+//     await user.save({ validateBeforeSave: false });
+
+//     return res
+//       .status(200)
+//       .json(new ApiResponse(200, user, "Avatar image updated successfully"));
+//   } catch (error) {
+//     console.error(error);
+//     //Rollback
+//     if (oldAvatar) {
+//       await uploadOnCloudinary(oldAvatar);
+//     }
+
+//     throw new ApiError(400, "Error while updating avatar");
+//   }
+// });
+
+const updateUserAvatarS3 = asyncHandler(async (req, res) => {
+  const avatar = req.file;
+  if (!avatar) {
     throw new ApiError(400, "Avatar file is missing");
   }
 
@@ -274,40 +381,88 @@ const updateUserAvatar = asyncHandler(async (req, res) => {
   }
 
   const oldAvatar = user.avatar;
+  let newAvatarUrl = "";
 
   try {
-    //delete old image
-    if (oldAvatar) {
-      deleteFromCloudinary(oldAvatar);
-    }
-    //upload new image
-    const avatar = await uploadOnCloudinary(avatarLocalPath, "snapstream/avatars");
-    if (!avatar.url) {
-      throw new ApiError(400, "Error while uploading on avatar");
+    const avatarUpload = await uploadObjectToS3(
+      `avatar/${Date.now()}-${avatar.originalname}`,
+      avatar.buffer,
+      avatar.mimetype
+    );
+
+    if (!avatarUpload.Location) {
+      throw new ApiError(500, "Failed to upload avatar to S3");
     }
 
-    //update user avatar
-    user.avatar = avatar.url;
+    newAvatarUrl = avatarUpload.Location;
+    user.avatar = newAvatarUrl;
     await user.save({ validateBeforeSave: false });
+
+    if (oldAvatar) {
+      const oldAvatarKey = oldAvatar.split("/").slice(-1)[0];
+      await deleteObjectFromS3(`avatar/${oldAvatarKey}`);
+    }
 
     return res
       .status(200)
       .json(new ApiResponse(200, user, "Avatar image updated successfully"));
   } catch (error) {
-    console.error(error);
-    //Rollback
-    if (oldAvatar) {
-      await uploadOnCloudinary(oldAvatar);
+    console.error("Avatar Update Error:", error);
+    if (newAvatarUrl) {
+      const newAvatarKey = newAvatarUrl.split("/").slice(-1)[0];
+      await deleteObjectFromS3(`avatar/${newAvatarKey}`);
     }
-
-    throw new ApiError(400, "Error while updating avatar");
+    throw new ApiError(500, "Error while updating avatar");
   }
 });
 
-const updateUserCoverImage = asyncHandler(async (req, res) => {
-  const coverImageLocalPath = req.file?.path;
+// const updateUserCoverImage = asyncHandler(async (req, res) => {
+//   const coverImageLocalPath = req.file?.path;
 
-  if (!coverImageLocalPath) {
+//   if (!coverImageLocalPath) {
+//     throw new ApiError(400, "Cover image file is missing");
+//   }
+
+//   const user = await User.findById(req.user?._id);
+//   if (!user) {
+//     throw new ApiError(404, "User not found");
+//   }
+//   const oldCoverImage = user.coverImage;
+//   try {
+//     //delete old image
+//     if (oldCoverImage) {
+//       deleteFromCloudinary(oldCoverImage);
+//     }
+//     const coverImage = await uploadOnCloudinary(
+//       coverImageLocalPath,
+//       "snapstream/cover-images"
+//     );
+//     if (!coverImage.url) {
+//       throw new ApiError(400, "Error while uploading on avatar");
+//     }
+
+//     //update user avatar
+//     user.coverImage = coverImage.url;
+//     await user.save({ validateBeforeSave: false });
+
+//     return res
+//       .status(200)
+//       .json(new ApiResponse(200, user, "Cover image updated successfully"));
+//   } catch (error) {
+//     console.error(error);
+//     //Rollback
+//     if (oldCoverImage) {
+//       await uploadOnCloudinary(oldCoverImage);
+//     }
+
+//     throw new ApiError(400, "Error while updating cover image");
+//   }
+// });
+
+const updateUserCoverImageS3 = asyncHandler(async (req, res) => {
+  const coverImage = req.file;
+
+  if (!coverImage) {
     throw new ApiError(400, "Cover image file is missing");
   }
 
@@ -316,30 +471,36 @@ const updateUserCoverImage = asyncHandler(async (req, res) => {
     throw new ApiError(404, "User not found");
   }
   const oldCoverImage = user.coverImage;
+  let newCoverImageUrl = "";
   try {
-    //delete old image
-    if (oldCoverImage) {
-      deleteFromCloudinary(oldCoverImage);
-    }
-    const coverImage = await uploadOnCloudinary(coverImageLocalPath, "snapstream/cover-images");
-    if (!coverImage.url) {
-      throw new ApiError(400, "Error while uploading on avatar");
+    const coverImageUpload = await uploadObjectToS3(
+      `coverImage/${Date.now()}-${coverImage.originalname}`,
+      coverImage.buffer,
+      coverImage.mimetype
+    );
+
+    if (!coverImageUpload.Location) {
+      throw new ApiError(500, "Failed to upload cover image to S3");
     }
 
-    //update user avatar
-    user.coverImage = coverImage.url;
+    newCoverImageUrl = coverImageUpload.Location;
+    user.coverImage = newCoverImageUrl;
     await user.save({ validateBeforeSave: false });
 
+    if (oldCoverImage) {
+      const oldCoverImageKey = oldCoverImage.split("/").slice(-1)[0];
+      await deleteObjectFromS3(`coverImage/${oldCoverImageKey}`);
+    }
     return res
       .status(200)
       .json(new ApiResponse(200, user, "Cover image updated successfully"));
   } catch (error) {
     console.error(error);
     //Rollback
-    if (oldCoverImage) {
-      await uploadOnCloudinary(oldCoverImage);
+    if (newCoverImageUrl) {
+      const newCoverImageKey = newCoverImageUrl.split("/").slice(-1)[0];
+      await deleteObjectFromS3(`coverImage/${newCoverImageKey}`);
     }
-
     throw new ApiError(400, "Error while updating cover image");
   }
 });
@@ -473,15 +634,15 @@ const getWatchHistory = asyncHandler(async (req, res) => {
 });
 
 export {
-  registerUser,
+  registerUserS3,
   loginUser,
   logoutUser,
   refreshAccessToken,
   changeCurrentPassword,
   getCurrentUser,
   updateAccountDetails,
-  updateUserAvatar,
-  updateUserCoverImage,
+  updateUserAvatarS3,
+  updateUserCoverImageS3,
   getUserChannelProfile,
   getWatchHistory,
 };

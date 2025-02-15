@@ -20,18 +20,17 @@ const userSchema = new Schema(
       lowecase: true,
       trim: true,
     },
-    fullName: {
+    fullname: {
       type: String,
       required: true,
       trim: true,
       index: true,
     },
     avatar: {
-      type: String, // cloudinary url
-      required: true,
+      type: String, 
     },
     coverImage: {
-      type: String, // cloudinary url
+      type: String, 
     },
     watchHistory: [
       {
