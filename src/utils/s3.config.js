@@ -5,6 +5,7 @@ import {
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { Upload } from "@aws-sdk/lib-storage";
 
 const bucketName = process.env.AWS_BUCKET_NAME;
 const region = process.env.AWS_REGION;
@@ -83,5 +84,32 @@ export const deleteObjectFromS3 = async (key) => {
   } catch (error) {
     console.error("S3 Delete Error:", error);
     throw new Error(`Failed to delete file ${key} from S3`);
+  }
+};
+
+export const uploadVideoObjectToS3 = async (
+  key,
+  body,
+  contentType = mime.lookup(key) || "application/octet-stream"
+) => {
+  try {
+    const upload = new Upload({
+      client: s3Client,
+      params: {
+        Bucket: bucketName,
+        Key: key,
+        Body: body, // Supports Buffer (small files) & Streams (large files)
+        ContentType: contentType,
+      },
+    });
+
+    await upload.done();
+
+    return {
+      Location: `https://${bucketName}.s3.${region}.amazonaws.com/${key}`,
+    };
+  } catch (error) {
+    console.error("S3 Video Upload Error:", error);
+    throw new Error("Failed to upload video to S3");
   }
 };

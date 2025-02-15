@@ -12,14 +12,13 @@ import {
   updateAccountDetails,
   updateUserAvatarS3,
 } from "../controllers/user.controller.js";
-import { upload } from "../middlewares/multer.middleware.js";
+import { imageUpload, videoUpload } from "../middlewares/multer.middleware.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
-import { uploadObjectToS3 } from "../utils/s3.config.js";
 
 const router = Router();
 
 router.route("/register").post(
-  upload.fields([
+  imageUpload.fields([
     { name: "avatar", maxCount: 1 },
     { name: "coverImage", maxCount: 1 },
   ]),
@@ -37,11 +36,11 @@ router.route("/update-account").patch(verifyJWT, updateAccountDetails);
 
 router
   .route("/updateAvatar")
-  .post(verifyJWT, upload.single("avatar"), updateUserAvatarS3);
+  .post(verifyJWT, imageUpload.single("avatar"), updateUserAvatarS3);
 
 router
   .route("/updateCoverImage")
-  .post(verifyJWT, upload.single("coverImage"), updateUserCoverImageS3);
+  .post(verifyJWT, imageUpload.single("coverImage"), updateUserCoverImageS3);
 
 router.route("/c/:username").get(verifyJWT, getUserChannelProfile);
 router.route("/history").get(verifyJWT, getWatchHistory);

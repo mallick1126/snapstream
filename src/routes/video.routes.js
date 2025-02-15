@@ -3,19 +3,19 @@ import {
   deleteVideo,
   getAllVideos,
   getVideoById,
-  publishAVideo,
+  publishAVideoS3,
   togglePublishStatus,
   updateVideo,
 } from "../controllers/video.controller.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
-import { upload } from "../middlewares/multer.middleware.js";
+import { imageUpload, videoUpload } from "../middlewares/multer.middleware.js";
 
 const router = Router();
 
 router.route("/getAllVideos").get(verifyJWT, getAllVideos);
 router.route("/publishVideo").post(
   verifyJWT,
-  upload.fields([
+  videoUpload.fields([
     {
       name: "videoFile",
       maxCount: 1,
@@ -25,14 +25,14 @@ router.route("/publishVideo").post(
       maxCount: 1,
     },
   ]),
-  publishAVideo
+  publishAVideoS3
 );
 
 router
   .route("/:videoId")
   .get(verifyJWT, getVideoById)
   .delete(verifyJWT, deleteVideo)
-  .patch(verifyJWT, upload.single("thumbnail"), updateVideo);
+  .patch(verifyJWT, imageUpload.single("thumbnail"), updateVideo);
 
 router.route("/toggle/publish/:videoId").patch(verifyJWT, togglePublishStatus);
 
